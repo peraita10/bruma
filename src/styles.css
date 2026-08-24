@@ -90,12 +90,19 @@ select { width:100%; padding:16px; border:1px solid var(--line); background:whit
 .section-title { display:flex; justify-content:space-between; align-items:center; }
 .section-title button { border:0; background:none; color:var(--green); font-weight:800; }
 .days { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; }
-.day { background:white; border:1px solid var(--line); border-radius:14px; height:65px; display:grid; place-content:center; text-align:center; }
-.day small { color:var(--muted); }
-.day strong { margin-top:5px; }
+.day { appearance:none; -webkit-appearance:none; background:white; border:1px solid var(--line); border-radius:14px; min-height:82px; padding:7px 2px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; color:var(--ink); }
+.day small { color:var(--muted); font-size:10px; font-weight:800; }
+.day strong { margin-top:2px; font-size:16px; line-height:1; }
+.day span { margin-top:2px; color:var(--muted); font-size:8px; font-weight:800; }
+.day em { margin-top:5px; font-size:11px; font-style:normal; font-weight:900; }
 .day.zero { background:var(--green); color:white; border-color:var(--green); }
+.day.zero small,.day.zero span { color:#d9e5df; }
 .day.empty { color:#adb3ae; background:#f1f2ed; border-color:transparent; }
+.day.current { box-shadow:0 0 0 2px var(--lime) inset; }
 .today-screen { padding-top:40px; padding-bottom:110px; }
+.date-field { display:block; margin-bottom:20px; }
+.date-field > span { display:block; margin-bottom:7px; color:var(--muted); font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:1px; }
+.date-field input { width:100%; min-height:52px; border:1px solid var(--line); border-radius:16px; background:white; color:var(--ink); padding:0 14px; font:inherit; font-weight:800; }
 .daily-score { background:var(--soft); border-radius:24px; padding:20px; text-align:center; }
 .daily-score span,.daily-score small { display:block; }
 .daily-score strong { display:block; font-size:46px; margin:4px 0 8px; }
