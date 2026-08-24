@@ -71,6 +71,31 @@ function toggle(list: string[], item: string) {
   return list.includes(item) ? list.filter(x => x !== item) : [...list, item];
 }
 
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalDate(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(year, month - 1, day, 12);
+}
+
+function formatLongDate(dateKey: string) {
+  return new Intl.DateTimeFormat('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }).format(parseLocalDate(dateKey));
+}
+
+function getLastSevenDays() {
+  const today = new Date();
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(today);
+    date.setDate(today.getDate() - (6 - index));
+    return localDateKey(date);
+  });
+}
+
 function generatePlan(profile: Profile): PlanMonth[] {
   const months = profile.durationMonths;
   const startRef = Math.max(1, profile.averageCigarettesPerDay);
@@ -138,6 +163,7 @@ function App() {
   const [entries, setEntries] = useState<DailyEntry[]>(storedEntries ? JSON.parse(storedEntries) : []);
   const [step, setStep] = useState(storedProfile ? 12 : 0);
   const [tab, setTab] = useState<'home' | 'today' | 'plan'>('home');
+  const [selectedDate, setSelectedDate] = useState(localDateKey());
   const [todayCigs, setTodayCigs] = useState(0);
 
   const plan = useMemo(() => generatePlan(profile), [profile]);
@@ -148,6 +174,9 @@ function App() {
   const baselineForLoggedDays = entries.length * profile.averageCigarettesPerDay;
   const avoided = Math.max(0, Math.round(baselineForLoggedDays - totalCigs));
   const moneySaved = Math.round((avoided / 20) * profile.packPrice * 100) / 100;
+  const todayKey = localDateKey();
+  const recentDays = getLastSevenDays();
+  const selectedEntry = entries.find(e => e.date === selectedDate);
 
   const update = (patch: Partial<Profile>) => setProfile(p => ({ ...p, ...patch }));
 
@@ -161,9 +190,16 @@ function App() {
     setTab('home');
   }
 
-  function saveToday() {
-    const date = new Date().toISOString().slice(0, 10);
-    const nextEntries = [...entries.filter(e => e.date !== date), { date, cigarettes: todayCigs }].sort((a, b) => a.date.localeCompare(b.date));
+  function openDay(date: string) {
+    const entry = entries.find(e => e.date === date);
+    setSelectedDate(date);
+    setTodayCigs(entry?.cigarettes ?? 0);
+    setTab('today');
+  }
+
+  function saveDay() {
+    const nextEntries = [...entries.filter(e => e.date !== selectedDate), { date: selectedDate, cigarettes: todayCigs }]
+      .sort((a, b) => a.date.localeCompare(b.date));
     setEntries(nextEntries);
     localStorage.setItem('bruma-entries', JSON.stringify(nextEntries));
     setTab('home');
@@ -334,7 +370,7 @@ function App() {
         <p className="eyebrow">MES 1 · DÍA {Math.max(1, entries.length + 1)}</p>
         <h1>Hoy cuenta.<br />No tiene que ser perfecto.</h1>
 
-        <button className="today-card" onClick={() => setTab('today')}>
+        <button className="today-card" onClick={() => openDay(todayKey)}>
           <span>Registrar hoy</span>
           <strong>¿Cuántos has fumado?</strong>
           <i>→</i>
@@ -354,23 +390,41 @@ function App() {
 
         <div className="month-strip">
           <div className="section-title"><h3>Tus últimos días</h3><button onClick={() => setTab('plan')}>Ver plan</button></div>
-          <div className="days">{Array.from({length: 7}, (_,i) => {
-            const entry = entries.slice(-7)[i];
-            return <div key={i} className={entry ? (entry.cigarettes===0 ? 'day zero' : 'day') : 'day empty'}><small>{['L','M','X','J','V','S','D'][i]}</small><strong>{entry ? (entry.cigarettes===0 ? '✓' : entry.cigarettes) : '·'}</strong></div>
+          <div className="days">{recentDays.map(dateKey => {
+            const entry = entries.find(e => e.date === dateKey);
+            const date = parseLocalDate(dateKey);
+            const weekday = ['D','L','M','X','J','V','S'][date.getDay()];
+            const month = new Intl.DateTimeFormat('es-ES', { month: 'short' }).format(date).replace('.', '').toUpperCase();
+            const className = `day ${entry?.cigarettes === 0 ? 'zero ' : ''}${!entry ? 'empty ' : ''}${dateKey === todayKey ? 'current' : ''}`.trim();
+            return <button key={dateKey} className={className} onClick={() => openDay(dateKey)}>
+              <small>{weekday}</small>
+              <strong>{date.getDate()}</strong>
+              <span>{month}</span>
+              <em>{entry ? (entry.cigarettes === 0 ? '✓' : entry.cigarettes) : '·'}</em>
+            </button>
           })}</div>
         </div>
       </section>}
 
       {tab === 'today' && <section className="screen today-screen">
         <p className="eyebrow">REGISTRO DIARIO</p>
-        <h1>¿Cuántos cigarrillos has fumado hoy?</h1>
+        <label className="date-field">
+          <span>Fecha</span>
+          <input
+            type="date"
+            value={selectedDate}
+            max={todayKey}
+            onChange={e => e.target.value && openDay(e.target.value)}
+          />
+        </label>
+        <h1>{selectedDate === todayKey ? '¿Cuántos cigarrillos has fumado hoy?' : `¿Cuántos cigarrillos fumaste el ${formatLongDate(selectedDate)}?`}</h1>
         <Stepper value={todayCigs} min={0} max={80} onChange={setTodayCigs} suffix="cigarrillos" />
         <div className={`daily-score ${todayCigs===0 ? 'celebrate' : ''}`}>
-          <span>Puntuación de hoy</span>
+          <span>Puntuación {selectedDate === todayKey ? 'de hoy' : 'de ese día'}</span>
           <strong>+{scoreDay(todayCigs, currentMonth.reference).toFixed(2)}</strong>
-          <small>{todayCigs===0 ? 'Día completamente libre de tabaco.' : todayCigs < currentMonth.reference ? 'Has reducido respecto a tu referencia.' : 'Hoy no suma puntos. Mañana empieza de cero.'}</small>
+          <small>{todayCigs===0 ? 'Día completamente libre de tabaco.' : todayCigs < currentMonth.reference ? 'Has reducido respecto a tu referencia.' : 'Este día no suma puntos, pero sigue formando parte del proceso.'}</small>
         </div>
-        <button className="primary bottom" onClick={saveToday}>Guardar día</button>
+        <button className="primary bottom" onClick={saveDay}>{selectedEntry ? 'Actualizar día' : 'Guardar día'}</button>
       </section>}
 
       {tab === 'plan' && <section className="plan-screen">
@@ -381,7 +435,7 @@ function App() {
 
       <nav className="bottom-nav">
         <button className={tab==='home'?'active':''} onClick={() => setTab('home')}><span>⌂</span>Inicio</button>
-        <button className={tab==='today'?'active':''} onClick={() => setTab('today')}><span>＋</span>Hoy</button>
+        <button className={tab==='today'?'active':''} onClick={() => openDay(todayKey)}><span>＋</span>Hoy</button>
         <button className={tab==='plan'?'active':''} onClick={() => setTab('plan')}><span>↗</span>Plan</button>
       </nav>
     </main>
