@@ -96,24 +96,33 @@ function getLastSevenDays() {
   });
 }
 
+function isQuantityGoal(profile: Profile) {
+  return profile.goalType === 'REDUCE' && profile.goalUnit !== 'SMOKING_DAYS_PER_MONTH';
+}
+
+function finalDailyQuantityTarget(profile: Profile) {
+  if (profile.goalUnit === 'CIGARETTES_PER_DAY') return Math.max(0, profile.goalAmount);
+  if (profile.goalUnit === 'CIGARETTES_PER_WEEK') return Math.max(0, profile.goalAmount / 7);
+  if (profile.goalUnit === 'CIGARETTES_PER_MONTH') return Math.max(0, profile.goalAmount / 30);
+  return 0;
+}
+
 function generatePlan(profile: Profile): PlanMonth[] {
   const months = profile.durationMonths;
   const startRef = Math.max(1, profile.averageCigarettesPerDay);
   const intensityFactor = profile.intensity === 'GENTLE' ? 0.85 : profile.intensity === 'INTENSIVE' ? 1.15 : 1;
+  const quantityGoal = isQuantityGoal(profile);
 
   let finalRef = 0;
   let finalSmokeFreeDays = 30;
 
   if (profile.goalType === 'REDUCE') {
-    if (profile.goalUnit === 'CIGARETTES_PER_DAY') finalRef = Math.max(0, profile.goalAmount);
-    if (profile.goalUnit === 'CIGARETTES_PER_WEEK') finalRef = Math.max(0, profile.goalAmount / Math.max(1, profile.smokingDaysPerWeek));
-    if (profile.goalUnit === 'CIGARETTES_PER_MONTH') finalRef = Math.max(0, profile.goalAmount / 30);
-    if (profile.goalUnit === 'SMOKING_DAYS_PER_MONTH') {
+    if (quantityGoal) {
+      finalRef = finalDailyQuantityTarget(profile);
+      finalSmokeFreeDays = 0;
+    } else {
       finalRef = Math.max(1, startRef * 0.25);
       finalSmokeFreeDays = clamp(30 - profile.goalAmount, 0, 30);
-    } else {
-      const estimatedSmokingDays = clamp(Math.round((finalRef / startRef) * 30), 0, 30);
-      finalSmokeFreeDays = 30 - estimatedSmokingDays;
     }
   }
 
@@ -121,6 +130,16 @@ function generatePlan(profile: Profile): PlanMonth[] {
     const progress = (i + 1) / months;
     const curved = Math.pow(progress, profile.intensity === 'GENTLE' ? 1.25 : profile.intensity === 'INTENSIVE' ? 0.8 : 1);
     const reference = Math.max(finalRef, startRef - (startRef - finalRef) * curved);
+
+    if (quantityGoal) {
+      return {
+        month: i + 1,
+        reference: Math.round(reference * 10) / 10,
+        pointsTarget: 30,
+        smokeFreeDaysTarget: 0,
+      };
+    }
+
     const smokeFreeDaysTarget = Math.round(finalSmokeFreeDays * curved);
     const basePoints = smokeFreeDaysTarget + (30 - smokeFreeDaysTarget) * 0.16;
     const pointsTarget = Math.round(basePoints * intensityFactor * 10) / 10;
@@ -133,13 +152,31 @@ function generatePlan(profile: Profile): PlanMonth[] {
   });
 }
 
-function scoreDay(cigarettes: number, reference: number) {
+function scoreSmokeFreeGoalDay(cigarettes: number, reference: number) {
   if (cigarettes === 0) return 1;
   const ratio = cigarettes / Math.max(reference, 1);
   if (ratio <= 0.3) return 0.4;
   if (ratio <= 0.5) return 0.25;
   if (ratio < 1) return 0.1;
   return 0;
+}
+
+function scoreQuantityGoalDay(cigarettes: number, target: number, baseline: number) {
+  if (target <= 0) return cigarettes === 0 ? 1 : 0;
+  if (cigarettes <= target) {
+    const bonus = ((target - cigarettes) / target) * 0.25;
+    return Math.round((1 + bonus) * 100) / 100;
+  }
+
+  const distance = Math.max(1, baseline - target);
+  const score = 1 - (cigarettes - target) / distance;
+  return Math.round(clamp(score, 0, 1) * 100) / 100;
+}
+
+function scoreDay(cigarettes: number, profile: Profile, month: PlanMonth) {
+  return isQuantityGoal(profile)
+    ? scoreQuantityGoalDay(cigarettes, month.reference, profile.averageCigarettesPerDay)
+    : scoreSmokeFreeGoalDay(cigarettes, month.reference);
 }
 
 function Choice({ active, children, onClick }: { active?: boolean; children: React.ReactNode; onClick: () => void }) {
@@ -168,8 +205,10 @@ function App() {
 
   const plan = useMemo(() => generatePlan(profile), [profile]);
   const currentMonth = plan[0];
-  const currentPoints = entries.reduce((sum, e) => sum + scoreDay(e.cigarettes, currentMonth.reference), 0);
+  const quantityGoal = isQuantityGoal(profile);
+  const currentPoints = entries.reduce((sum, e) => sum + scoreDay(e.cigarettes, profile, currentMonth), 0);
   const smokeFreeDays = entries.filter(e => e.cigarettes === 0).length;
+  const daysMeetingTarget = entries.filter(e => e.cigarettes <= currentMonth.reference).length;
   const totalCigs = entries.reduce((sum, e) => sum + e.cigarettes, 0);
   const baselineForLoggedDays = entries.length * profile.averageCigarettesPerDay;
   const avoided = Math.max(0, Math.round(baselineForLoggedDays - totalCigs));
@@ -229,7 +268,7 @@ function App() {
             <div className="hero-mark">○</div>
             <p className="eyebrow">TU PLAN, TU RITMO</p>
             <h1>Reduce el tabaco<br />sin vivir contando fallos.</h1>
-            <p className="lead">Vamos a conocer cómo fumas ahora y construir un plan que premie especialmente los días completamente libres de tabaco.</p>
+            <p className="lead">Vamos a conocer cómo fumas ahora y construir un plan que se adapte a tu objetivo real: reducir cantidad, reducir días de consumo o dejarlo por completo.</p>
             <div className="info-card"><b>2 minutos</b><span>Una pregunta cada vez. Sin registros ni contraseñas.</span></div>
             <button className="primary" onClick={next}>Crear mi plan</button>
           </>}
@@ -319,6 +358,7 @@ function App() {
             </select>
             <Stepper value={profile.goalAmount} min={profile.goalUnit==='SMOKING_DAYS_PER_MONTH' ? 1 : 0} max={profile.goalUnit==='SMOKING_DAYS_PER_MONTH' ? 29 : 200} onChange={n => update({ goalAmount:n })} suffix={profile.goalUnit==='SMOKING_DAYS_PER_MONTH' ? 'días con tabaco / mes' : 'cigarrillos'} />
             {profile.goalUnit==='SMOKING_DAYS_PER_MONTH' && <p className="callout">Tu objetivo real será conseguir <b>{30-profile.goalAmount} días sin fumar</b> cada mes.</p>}
+            {profile.goalUnit!=='SMOKING_DAYS_PER_MONTH' && <p className="callout">Cumplir la cantidad objetivo de cada etapa contará como <b>objetivo diario cumplido</b>. Los días sin fumar serán un extra, no una obligación.</p>}
             <button className="primary bottom" onClick={next}>Continuar</button>
           </>}
 
@@ -350,11 +390,13 @@ function App() {
             </div>
             <div className="plan-preview">
               <p>Primer mes</p>
-              <div><span>Referencia</span><b>{plan[0].reference} cig/día</b></div>
+              <div><span>{isQuantityGoal(profile) ? 'Objetivo diario equivalente' : 'Referencia'}</span><b>{plan[0].reference} cig/día</b></div>
               <div><span>Objetivo de puntos</span><b>{plan[0].pointsTarget}</b></div>
-              <div><span>Días sin fumar</span><b>{plan[0].smokeFreeDaysTarget}</b></div>
+              {isQuantityGoal(profile)
+                ? <div><span>Cumplir la meta diaria</span><b>1 punto</b></div>
+                : <div><span>Días sin fumar</span><b>{plan[0].smokeFreeDaysTarget}</b></div>}
             </div>
-            <p className="muted">Reducir te hará avanzar. Un día completo sin fumar siempre valdrá mucho más.</p>
+            <p className="muted">{isQuantityGoal(profile) ? 'Cumplir la cantidad marcada cada día vale 1 punto. Hacerlo mejor puede sumar un pequeño extra.' : 'Reducir te hará avanzar. Un día completo sin fumar siempre valdrá mucho más.'}</p>
             <button className="primary" onClick={savePlan}>Empezar mi plan</button>
           </>}
         </section>
@@ -378,14 +420,16 @@ function App() {
 
         <div className="score-card">
           <div className="score-ring"><strong>{currentPoints.toFixed(1)}</strong><span>de {currentMonth.pointsTarget}</span></div>
-          <div><p>Puntos este mes</p><h3>{Math.max(0, currentMonth.pointsTarget-currentPoints).toFixed(1)} para el objetivo</h3><small>Los días a 0 valen 1 punto completo.</small></div>
+          <div><p>Puntos este mes</p><h3>{Math.max(0, currentMonth.pointsTarget-currentPoints).toFixed(1)} para el objetivo</h3><small>{quantityGoal ? `Cumplir ≤ ${currentMonth.reference} cig/día vale 1 punto.` : 'Los días a 0 valen 1 punto completo.'}</small></div>
         </div>
 
         <div className="metric-grid">
-          <div><span>Días sin fumar</span><strong>{smokeFreeDays}</strong><small>objetivo {currentMonth.smokeFreeDaysTarget}</small></div>
+          {quantityGoal
+            ? <div><span>Días cumpliendo</span><strong>{daysMeetingTarget}</strong><small>de {entries.length} registrados</small></div>
+            : <div><span>Días sin fumar</span><strong>{smokeFreeDays}</strong><small>objetivo {currentMonth.smokeFreeDaysTarget}</small></div>}
           <div><span>Cigarrillos evitados</span><strong>{avoided}</strong><small>frente a tu inicio</small></div>
           <div><span>Ahorro estimado</span><strong>{moneySaved.toFixed(2)} €</strong><small>aproximado</small></div>
-          <div><span>Referencia actual</span><strong>{currentMonth.reference}</strong><small>cig/día</small></div>
+          <div><span>{quantityGoal ? 'Objetivo actual' : 'Referencia actual'}</span><strong>{currentMonth.reference}</strong><small>cig/día</small></div>
         </div>
 
         <div className="month-strip">
@@ -421,8 +465,18 @@ function App() {
         <Stepper value={todayCigs} min={0} max={80} onChange={setTodayCigs} suffix="cigarrillos" />
         <div className={`daily-score ${todayCigs===0 ? 'celebrate' : ''}`}>
           <span>Puntuación {selectedDate === todayKey ? 'de hoy' : 'de ese día'}</span>
-          <strong>+{scoreDay(todayCigs, currentMonth.reference).toFixed(2)}</strong>
-          <small>{todayCigs===0 ? 'Día completamente libre de tabaco.' : todayCigs < currentMonth.reference ? 'Has reducido respecto a tu referencia.' : 'Este día no suma puntos, pero sigue formando parte del proceso.'}</small>
+          <strong>+{scoreDay(todayCigs, profile, currentMonth).toFixed(2)}</strong>
+          <small>{quantityGoal
+            ? todayCigs <= currentMonth.reference
+              ? todayCigs === 0
+                ? 'Has superado ampliamente tu objetivo de cantidad.'
+                : 'Has cumplido tu objetivo de cantidad para esta etapa.'
+              : 'Te has acercado a tu objetivo. Cuanto más cerca estés, más puntuación sumas.'
+            : todayCigs===0
+              ? 'Día completamente libre de tabaco.'
+              : todayCigs < currentMonth.reference
+                ? 'Has reducido respecto a tu referencia.'
+                : 'Este día no suma puntos, pero sigue formando parte del proceso.'}</small>
         </div>
         <button className="primary bottom" onClick={saveDay}>{selectedEntry ? 'Actualizar día' : 'Guardar día'}</button>
       </section>}
@@ -430,7 +484,7 @@ function App() {
       {tab === 'plan' && <section className="plan-screen">
         <p className="eyebrow">TU CAMINO</p>
         <h1>{profile.durationMonths} meses.<br />Un objetivo claro.</h1>
-        <div className="timeline">{plan.map(m => <div className="month-row" key={m.month}><span>{String(m.month).padStart(2,'0')}</span><div><b>Mes {m.month}</b><small>Referencia {m.reference} cig/día</small></div><div className="month-goals"><b>{m.smokeFreeDaysTarget} 🚭</b><small>{m.pointsTarget} pts</small></div></div>)}</div>
+        <div className="timeline">{plan.map(m => <div className="month-row" key={m.month}><span>{String(m.month).padStart(2,'0')}</span><div><b>Mes {m.month}</b><small>{quantityGoal ? `Objetivo ≤ ${m.reference} cig/día` : `Referencia ${m.reference} cig/día`}</small></div><div className="month-goals"><b>{quantityGoal ? `≤${m.reference} 🚬` : `${m.smokeFreeDaysTarget} 🚭`}</b><small>{m.pointsTarget} pts</small></div></div>)}</div>
       </section>}
 
       <nav className="bottom-nav">
