@@ -34,7 +34,7 @@ jobs:
 
       - name: Build
         env:
-          VITE_UMAMI_WEBSITE_ID: ${{ vars.UMAMI_WEBSITE_ID }}
+          VITE_UMAMI_WEBSITE_ID: aa52a24f-b3ae-4b63-893e-0af9ad1019b5
         run: npm run build
 
       - name: Verify build
