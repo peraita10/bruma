@@ -154,11 +154,18 @@ function generatePlan(profile: Profile): PlanMonth[] {
 
 function scoreSmokeFreeGoalDay(cigarettes: number, reference: number) {
   if (cigarettes === 0) return 1;
-  const ratio = cigarettes / Math.max(reference, 1);
-  if (ratio <= 0.3) return 0.4;
-  if (ratio <= 0.5) return 0.25;
-  if (ratio < 1) return 0.1;
-  return 0;
+
+  const safeReference = Math.max(reference, 1);
+  const ratio = cigarettes / safeReference;
+
+  // En los planes orientados a conseguir días sin fumar, el 0 sigue siendo
+  // claramente el mejor resultado (1 punto). Pero cada cigarrillo evitado
+  // debe notarse: los días con consumo reducido puntúan de forma continua,
+  // hasta un máximo inferior a 0,7 para no equipararlos a un día a cero.
+  if (ratio >= 1) return 0;
+
+  const score = 0.7 * (1 - ratio);
+  return Math.round(clamp(score, 0, 0.7) * 100) / 100;
 }
 
 function scoreQuantityGoalDay(cigarettes: number, target: number, baseline: number) {
@@ -245,6 +252,12 @@ function App() {
   }
 
   function reset() {
+    const confirmed = window.confirm(
+      '¿Seguro que deseas reiniciar tu plan?\n\nSe borrarán tu perfil, todos tus registros y tu progreso guardado en este dispositivo. Esta acción no se puede deshacer.'
+    );
+
+    if (!confirmed) return;
+
     localStorage.removeItem('bruma-profile');
     localStorage.removeItem('bruma-entries');
     setProfile(initialProfile);
