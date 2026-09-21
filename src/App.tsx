@@ -96,6 +96,27 @@ function getLastSevenDays() {
   });
 }
 
+function getPlanPosition(dateKey: string, startDateKey: string, totalMonths: number) {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const elapsedDays = Math.max(
+    0,
+    Math.floor((parseLocalDate(dateKey).getTime() - parseLocalDate(startDateKey).getTime()) / dayMs)
+  );
+  const maxPlanDay = Math.max(0, totalMonths * 30 - 1);
+  const boundedDays = Math.min(elapsedDays, maxPlanDay);
+
+  return {
+    monthIndex: clamp(Math.floor(boundedDays / 30), 0, Math.max(0, totalMonths - 1)),
+    dayInMonth: (boundedDays % 30) + 1,
+  };
+}
+
+function smokeFreeScoringReference(profile: Profile, plan: PlanMonth[], monthIndex: number) {
+  return monthIndex === 0
+    ? profile.averageCigarettesPerDay
+    : plan[monthIndex - 1].reference;
+}
+
 function isQuantityGoal(profile: Profile) {
   return profile.goalType === 'REDUCE' && profile.goalUnit !== 'SMOKING_DAYS_PER_MONTH';
 }
@@ -180,10 +201,10 @@ function scoreQuantityGoalDay(cigarettes: number, target: number, baseline: numb
   return Math.round(clamp(score, 0, 1) * 100) / 100;
 }
 
-function scoreDay(cigarettes: number, profile: Profile, month: PlanMonth) {
+function scoreDay(cigarettes: number, profile: Profile, month: PlanMonth, smokeFreeReference: number) {
   return isQuantityGoal(profile)
     ? scoreQuantityGoalDay(cigarettes, month.reference, profile.averageCigarettesPerDay)
-    : scoreSmokeFreeGoalDay(cigarettes, profile.averageCigarettesPerDay);
+    : scoreSmokeFreeGoalDay(cigarettes, smokeFreeReference);
 }
 
 function Choice({ active, children, onClick }: { active?: boolean; children: React.ReactNode; onClick: () => void }) {
@@ -209,20 +230,40 @@ function App() {
   const [tab, setTab] = useState<'home' | 'today' | 'plan'>('home');
   const [selectedDate, setSelectedDate] = useState(localDateKey());
   const [todayCigs, setTodayCigs] = useState(0);
+  const [planStartDate, setPlanStartDate] = useState(() => {
+    const storedStartDate = localStorage.getItem('bruma-plan-start-date');
+    if (storedStartDate) return storedStartDate;
+
+    const parsedEntries: DailyEntry[] = storedEntries ? JSON.parse(storedEntries) : [];
+    const firstEntry = [...parsedEntries].sort((a, b) => a.date.localeCompare(b.date))[0];
+    return firstEntry?.date ?? localDateKey();
+  });
 
   const plan = useMemo(() => generatePlan(profile), [profile]);
-  const currentMonth = plan[0];
+  const todayKey = localDateKey();
+  const currentPosition = getPlanPosition(todayKey, planStartDate, plan.length);
+  const currentMonthIndex = currentPosition.monthIndex;
+  const currentMonth = plan[currentMonthIndex];
   const quantityGoal = isQuantityGoal(profile);
-  const currentPoints = entries.reduce((sum, e) => sum + scoreDay(e.cigarettes, profile, currentMonth), 0);
-  const smokeFreeDays = entries.filter(e => e.cigarettes === 0).length;
-  const daysMeetingTarget = entries.filter(e => e.cigarettes <= currentMonth.reference).length;
+  const currentMonthEntries = entries.filter(
+    e => getPlanPosition(e.date, planStartDate, plan.length).monthIndex === currentMonthIndex
+  );
+  const currentSmokeFreeReference = smokeFreeScoringReference(profile, plan, currentMonthIndex);
+  const currentPoints = currentMonthEntries.reduce(
+    (sum, e) => sum + scoreDay(e.cigarettes, profile, currentMonth, currentSmokeFreeReference),
+    0
+  );
+  const smokeFreeDays = currentMonthEntries.filter(e => e.cigarettes === 0).length;
+  const daysMeetingTarget = currentMonthEntries.filter(e => e.cigarettes <= currentMonth.reference).length;
   const totalCigs = entries.reduce((sum, e) => sum + e.cigarettes, 0);
   const baselineForLoggedDays = entries.length * profile.averageCigarettesPerDay;
   const avoided = Math.max(0, Math.round(baselineForLoggedDays - totalCigs));
   const moneySaved = Math.round((avoided / 20) * profile.packPrice * 100) / 100;
-  const todayKey = localDateKey();
   const recentDays = getLastSevenDays();
   const selectedEntry = entries.find(e => e.date === selectedDate);
+  const selectedMonthIndex = getPlanPosition(selectedDate, planStartDate, plan.length).monthIndex;
+  const selectedMonth = plan[selectedMonthIndex];
+  const selectedSmokeFreeReference = smokeFreeScoringReference(profile, plan, selectedMonthIndex);
 
   const update = (patch: Partial<Profile>) => setProfile(p => ({ ...p, ...patch }));
 
@@ -231,7 +272,10 @@ function App() {
   }
 
   function savePlan() {
+    const startDate = localDateKey();
     localStorage.setItem('bruma-profile', JSON.stringify(profile));
+    localStorage.setItem('bruma-plan-start-date', startDate);
+    setPlanStartDate(startDate);
     setStep(12);
     setTab('home');
   }
@@ -248,6 +292,9 @@ function App() {
       .sort((a, b) => a.date.localeCompare(b.date));
     setEntries(nextEntries);
     localStorage.setItem('bruma-entries', JSON.stringify(nextEntries));
+    if (!localStorage.getItem('bruma-plan-start-date')) {
+      localStorage.setItem('bruma-plan-start-date', planStartDate);
+    }
     setTab('home');
   }
 
@@ -260,7 +307,9 @@ function App() {
 
     localStorage.removeItem('bruma-profile');
     localStorage.removeItem('bruma-entries');
+    localStorage.removeItem('bruma-plan-start-date');
     setProfile(initialProfile);
+    setPlanStartDate(localDateKey());
     setEntries([]);
     setStep(0);
   }
@@ -422,7 +471,7 @@ function App() {
       <header className="app-header"><span className="brand">bruma</span><button className="avatar" onClick={reset}>↺</button></header>
 
       {tab === 'home' && <section className="dashboard">
-        <p className="eyebrow">MES 1 · DÍA {Math.max(1, entries.length + 1)}</p>
+        <p className="eyebrow">MES {currentMonthIndex + 1} · DÍA {currentPosition.dayInMonth}</p>
         <h1>Hoy cuenta.<br />No tiene que ser perfecto.</h1>
 
         <button className="today-card" onClick={() => openDay(todayKey)}>
@@ -438,7 +487,7 @@ function App() {
 
         <div className="metric-grid">
           {quantityGoal
-            ? <div><span>Días cumpliendo</span><strong>{daysMeetingTarget}</strong><small>de {entries.length} registrados</small></div>
+            ? <div><span>Días cumpliendo</span><strong>{daysMeetingTarget}</strong><small>de {currentMonthEntries.length} registrados</small></div>
             : <div><span>Días sin fumar</span><strong>{smokeFreeDays}</strong><small>objetivo {currentMonth.smokeFreeDaysTarget}</small></div>}
           <div><span>Cigarrillos evitados</span><strong>{avoided}</strong><small>frente a tu inicio</small></div>
           <div><span>Ahorro estimado</span><strong>{moneySaved.toFixed(2)} €</strong><small>aproximado</small></div>
@@ -478,17 +527,17 @@ function App() {
         <Stepper value={todayCigs} min={0} max={80} onChange={setTodayCigs} suffix="cigarrillos" />
         <div className={`daily-score ${todayCigs===0 ? 'celebrate' : ''}`}>
           <span>Puntuación {selectedDate === todayKey ? 'de hoy' : 'de ese día'}</span>
-          <strong>+{scoreDay(todayCigs, profile, currentMonth).toFixed(2)}</strong>
+          <strong>+{scoreDay(todayCigs, profile, selectedMonth, selectedSmokeFreeReference).toFixed(2)}</strong>
           <small>{quantityGoal
-            ? todayCigs <= currentMonth.reference
+            ? todayCigs <= selectedMonth.reference
               ? todayCigs === 0
                 ? 'Has superado ampliamente tu objetivo de cantidad.'
                 : 'Has cumplido tu objetivo de cantidad para esta etapa.'
               : 'Te has acercado a tu objetivo. Cuanto más cerca estés, más puntuación sumas.'
             : todayCigs===0
               ? 'Día completamente libre de tabaco.'
-              : todayCigs < currentMonth.reference
-                ? 'Has reducido respecto a tu referencia.'
+              : todayCigs < selectedSmokeFreeReference
+                ? `Has reducido respecto a tu referencia anterior de ${selectedSmokeFreeReference} cig/día.`
                 : 'Este día no suma puntos, pero sigue formando parte del proceso.'}</small>
         </div>
         <button className="primary bottom" onClick={saveDay}>{selectedEntry ? 'Actualizar día' : 'Guardar día'}</button>
