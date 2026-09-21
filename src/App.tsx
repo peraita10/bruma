@@ -183,7 +183,7 @@ function scoreQuantityGoalDay(cigarettes: number, target: number, baseline: numb
 function scoreDay(cigarettes: number, profile: Profile, month: PlanMonth) {
   return isQuantityGoal(profile)
     ? scoreQuantityGoalDay(cigarettes, month.reference, profile.averageCigarettesPerDay)
-    : scoreSmokeFreeGoalDay(cigarettes, month.reference);
+    : scoreSmokeFreeGoalDay(cigarettes, profile.averageCigarettesPerDay);
 }
 
 function Choice({ active, children, onClick }: { active?: boolean; children: React.ReactNode; onClick: () => void }) {
