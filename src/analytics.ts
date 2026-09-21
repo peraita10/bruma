@@ -51,6 +51,11 @@ function handleAnalyticsClick(event: MouseEvent) {
     return;
   }
 
+  if (label.includes('ver mes')) {
+    track('month_overview_viewed');
+    return;
+  }
+
   if (label === 'plan' || label.includes('ver plan')) {
     track('plan_viewed');
   }
