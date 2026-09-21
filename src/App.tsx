@@ -96,6 +96,17 @@ function getLastSevenDays() {
   });
 }
 
+function addDays(dateKey: string, days: number) {
+  const date = parseLocalDate(dateKey);
+  date.setDate(date.getDate() + days);
+  return localDateKey(date);
+}
+
+function getPlanMonthDates(startDateKey: string, monthIndex: number) {
+  const firstDayOffset = monthIndex * 30;
+  return Array.from({ length: 30 }, (_, index) => addDays(startDateKey, firstDayOffset + index));
+}
+
 function getPlanPosition(dateKey: string, startDateKey: string, totalMonths: number) {
   const dayMs = 24 * 60 * 60 * 1000;
   const elapsedDays = Math.max(
@@ -227,7 +238,7 @@ function App() {
   const [profile, setProfile] = useState<Profile>(storedProfile ? JSON.parse(storedProfile) : initialProfile);
   const [entries, setEntries] = useState<DailyEntry[]>(storedEntries ? JSON.parse(storedEntries) : []);
   const [step, setStep] = useState(storedProfile ? 12 : 0);
-  const [tab, setTab] = useState<'home' | 'today' | 'plan'>('home');
+  const [tab, setTab] = useState<'home' | 'today' | 'stats' | 'plan'>('home');
   const [selectedDate, setSelectedDate] = useState(localDateKey());
   const [todayCigs, setTodayCigs] = useState(0);
   const [planStartDate, setPlanStartDate] = useState(() => {
@@ -264,6 +275,21 @@ function App() {
   const selectedMonthIndex = getPlanPosition(selectedDate, planStartDate, plan.length).monthIndex;
   const selectedMonth = plan[selectedMonthIndex];
   const selectedSmokeFreeReference = smokeFreeScoringReference(profile, plan, selectedMonthIndex);
+  const currentMonthDates = getPlanMonthDates(planStartDate, currentMonthIndex);
+  const currentMonthTotalCigs = currentMonthEntries.reduce((sum, e) => sum + e.cigarettes, 0);
+  const currentMonthAverage = currentMonthEntries.length
+    ? currentMonthTotalCigs / currentMonthEntries.length
+    : 0;
+  const currentMonthSpend = (currentMonthTotalCigs / 20) * profile.packPrice;
+  const currentMonthBaselineCigs = currentMonthEntries.length * currentSmokeFreeReference;
+  const currentMonthAvoided = Math.max(0, Math.round(currentMonthBaselineCigs - currentMonthTotalCigs));
+  const currentMonthSaved = (currentMonthAvoided / 20) * profile.packPrice;
+  const chartMax = Math.max(
+    currentSmokeFreeReference,
+    currentMonth.reference,
+    ...currentMonthEntries.map(e => e.cigarettes),
+    1
+  );
 
   const update = (patch: Partial<Profile>) => setProfile(p => ({ ...p, ...patch }));
 
@@ -495,7 +521,7 @@ function App() {
         </div>
 
         <div className="month-strip">
-          <div className="section-title"><h3>Tus últimos días</h3><button onClick={() => setTab('plan')}>Ver plan</button></div>
+          <div className="section-title"><h3>Tus últimos días</h3><button onClick={() => setTab('stats')}>Ver mes</button></div>
           <div className="days">{recentDays.map(dateKey => {
             const entry = entries.find(e => e.date === dateKey);
             const date = parseLocalDate(dateKey);
@@ -510,6 +536,103 @@ function App() {
             </button>
           })}</div>
         </div>
+      </section>}
+
+      {tab === 'stats' && <section className="stats-screen">
+        <div className="stats-heading">
+          <div>
+            <p className="eyebrow">MES {currentMonthIndex + 1} DEL PLAN</p>
+            <h1>Tu mes,<br />de un vistazo.</h1>
+          </div>
+          <button className="stats-close" onClick={() => setTab('home')} aria-label="Volver">×</button>
+        </div>
+
+        <div className="month-kpis">
+          <div>
+            <span>Media diaria</span>
+            <strong>{currentMonthAverage.toFixed(1)}</strong>
+            <small>cig/día registrado</small>
+          </div>
+          <div>
+            <span>Total fumado</span>
+            <strong>{currentMonthTotalCigs}</strong>
+            <small>cigarrillos</small>
+          </div>
+          <div>
+            <span>Gasto estimado</span>
+            <strong>{currentMonthSpend.toFixed(2)} €</strong>
+            <small>este mes</small>
+          </div>
+          <div>
+            <span>Ahorro estimado</span>
+            <strong>{currentMonthSaved.toFixed(2)} €</strong>
+            <small>{currentMonthAvoided} cig. evitados</small>
+          </div>
+        </div>
+
+        <div className="stats-card">
+          <div className="stats-card-title">
+            <div><span>Consumo diario</span><small>Referencia anterior: {currentSmokeFreeReference} cig/día</small></div>
+            <b>{currentMonthEntries.length}/30 días</b>
+          </div>
+          <div className="consumption-chart" aria-label="Gráfica de consumo diario">
+            {currentMonthDates.map((dateKey, index) => {
+              const entry = entries.find(e => e.date === dateKey);
+              const isFuture = dateKey > todayKey;
+              const height = entry ? Math.max(5, (entry.cigarettes / chartMax) * 100) : 0;
+              return <div className="chart-day" key={dateKey}>
+                <div className="chart-track">
+                  {entry && <span
+                    className={entry.cigarettes === 0 ? 'chart-bar zero' : 'chart-bar'}
+                    style={{ height: entry.cigarettes === 0 ? '5px' : `${height}%` }}
+                    title={`${entry.cigarettes} cigarrillos`}
+                  />}
+                </div>
+                {(index + 1) % 5 === 0 && <small>{index + 1}</small>}
+                {isFuture && <i />}
+              </div>;
+            })}
+          </div>
+          <div className="chart-legend"><span><i className="legend-reference" /> referencia previa</span><span>Días 1–30</span></div>
+        </div>
+
+        <div className="stats-card">
+          <div className="stats-card-title">
+            <div><span>Todo el mes</span><small>Toca un día para verlo o editarlo.</small></div>
+            <b>{smokeFreeDays} 🚭</b>
+          </div>
+          <div className="month-calendar">
+            {currentMonthDates.map((dateKey, index) => {
+              const entry = entries.find(e => e.date === dateKey);
+              const date = parseLocalDate(dateKey);
+              const isFuture = dateKey > todayKey;
+              const className = `month-day ${entry?.cigarettes === 0 ? 'zero ' : ''}${!entry ? 'empty ' : ''}${dateKey === todayKey ? 'current ' : ''}${isFuture ? 'future' : ''}`.trim();
+              return <button
+                key={dateKey}
+                className={className}
+                disabled={isFuture}
+                onClick={() => openDay(dateKey)}
+              >
+                <small>D{index + 1}</small>
+                <strong>{entry ? (entry.cigarettes === 0 ? '✓' : entry.cigarettes) : '·'}</strong>
+                <span>{date.getDate()}/{date.getMonth() + 1}</span>
+              </button>;
+            })}
+          </div>
+        </div>
+
+        <div className="stats-insight">
+          <span>Tu tendencia</span>
+          <strong>{currentMonthEntries.length === 0
+            ? 'Registra algunos días para empezar a ver tu evolución.'
+            : currentMonthAverage < currentSmokeFreeReference
+              ? `Estás ${(currentSmokeFreeReference - currentMonthAverage).toFixed(1)} cig/día por debajo de tu referencia anterior.`
+              : currentMonthAverage === currentSmokeFreeReference
+                ? 'Tu media está justo en tu referencia anterior.'
+                : `Tu media está ${(currentMonthAverage - currentSmokeFreeReference).toFixed(1)} cig/día por encima de tu referencia anterior.`}</strong>
+        </div>
+
+        <button className="secondary stats-plan-button" onClick={() => setTab('plan')}>Ver mi plan completo</button>
       </section>}
 
       {tab === 'today' && <section className="screen today-screen">
