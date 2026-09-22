@@ -164,3 +164,15 @@ select { width:100%; padding:16px; border:1px solid var(--line); background:whit
 .stats-insight strong { display:block; font-size:20px; line-height:1.25; }
 .secondary { width:100%; border:1px solid var(--green); border-radius:18px; min-height:54px; background:transparent; color:var(--green); font:inherit; font-weight:900; }
 .stats-plan-button { margin-top:6px; }
+
+
+.exposure-card { background:white; border:1px solid var(--line); border-radius:24px; padding:18px; margin:14px 0; }
+.exposure-heading { display:flex; justify-content:space-between; gap:14px; align-items:flex-start; }
+.exposure-heading span,.exposure-heading strong { display:block; }
+.exposure-heading span { color:var(--muted); font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; }
+.exposure-heading strong { font-size:16px; line-height:1.25; }
+.exposure-heading small { color:var(--green); font-size:10px; font-weight:900; white-space:nowrap; }
+.exposure-chips { margin-top:14px; }
+.exposure-card > p { margin:10px 0 0; color:var(--muted); font-size:10px; line-height:1.4; }
+.exposure-bonus { display:inline-block; margin:0 0 8px; padding:5px 9px; border-radius:999px; background:rgba(15,79,60,.1); color:var(--green); font-size:11px; }
+.daily-score.celebrate .exposure-bonus { background:rgba(255,255,255,.5); }
