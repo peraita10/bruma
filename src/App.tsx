@@ -20,7 +20,7 @@ type Profile = {
   packPrice: number;
 };
 
-type DailyEntry = { date: string; cigarettes: number };
+type DailyEntry = { date: string; cigarettes: number; exposures?: string[] };
 
 type PlanMonth = {
   month: number;
@@ -212,10 +212,33 @@ function scoreQuantityGoalDay(cigarettes: number, target: number, baseline: numb
   return Math.round(clamp(score, 0, 1) * 100) / 100;
 }
 
-function scoreDay(cigarettes: number, profile: Profile, month: PlanMonth, smokeFreeReference: number) {
-  return isQuantityGoal(profile)
+function scoringReference(profile: Profile, month: PlanMonth, smokeFreeReference: number) {
+  return isQuantityGoal(profile) ? month.reference : smokeFreeReference;
+}
+
+function scoreDay(
+  cigarettes: number,
+  profile: Profile,
+  month: PlanMonth,
+  smokeFreeReference: number,
+  exposures: string[] = []
+) {
+  const baseScore = isQuantityGoal(profile)
     ? scoreQuantityGoalDay(cigarettes, month.reference, profile.averageCigarettesPerDay)
     : scoreSmokeFreeGoalDay(cigarettes, smokeFreeReference);
+
+  const reference = scoringReference(profile, month, smokeFreeReference);
+  const eligibleExposures = cigarettes < reference ? Math.min(exposures.length, 2) : 0;
+
+  if (eligibleExposures === 0 || baseScore <= 0) return baseScore;
+
+  const multiplier = 1 + eligibleExposures * 0.1;
+  const boostedScore = baseScore * multiplier;
+
+  // El bonus de exposición puede elevar un día hasta 1,20 puntos.
+  // Si otro sistema de puntuación ya daba más de 1,20, no lo rebajamos.
+  const cap = Math.max(baseScore, 1.2);
+  return Math.round(Math.min(boostedScore, cap) * 100) / 100;
 }
 
 function Choice({ active, children, onClick }: { active?: boolean; children: React.ReactNode; onClick: () => void }) {
@@ -241,6 +264,7 @@ function App() {
   const [tab, setTab] = useState<'home' | 'today' | 'stats' | 'plan'>('home');
   const [selectedDate, setSelectedDate] = useState(localDateKey());
   const [todayCigs, setTodayCigs] = useState(0);
+  const [todayExposures, setTodayExposures] = useState<string[]>([]);
   const [planStartDate, setPlanStartDate] = useState(() => {
     const storedStartDate = localStorage.getItem('bruma-plan-start-date');
     if (storedStartDate) return storedStartDate;
@@ -261,7 +285,7 @@ function App() {
   );
   const currentSmokeFreeReference = smokeFreeScoringReference(profile, plan, currentMonthIndex);
   const currentPoints = currentMonthEntries.reduce(
-    (sum, e) => sum + scoreDay(e.cigarettes, profile, currentMonth, currentSmokeFreeReference),
+    (sum, e) => sum + scoreDay(e.cigarettes, profile, currentMonth, currentSmokeFreeReference, e.exposures ?? []),
     0
   );
   const smokeFreeDays = currentMonthEntries.filter(e => e.cigarettes === 0).length;
@@ -310,12 +334,15 @@ function App() {
     const entry = entries.find(e => e.date === date);
     setSelectedDate(date);
     setTodayCigs(entry?.cigarettes ?? 0);
+    setTodayExposures(entry?.exposures ?? []);
     setTab('today');
   }
 
   function saveDay() {
-    const nextEntries = [...entries.filter(e => e.date !== selectedDate), { date: selectedDate, cigarettes: todayCigs }]
-      .sort((a, b) => a.date.localeCompare(b.date));
+    const nextEntries = [
+      ...entries.filter(e => e.date !== selectedDate),
+      { date: selectedDate, cigarettes: todayCigs, exposures: todayExposures }
+    ].sort((a, b) => a.date.localeCompare(b.date));
     setEntries(nextEntries);
     localStorage.setItem('bruma-entries', JSON.stringify(nextEntries));
     if (!localStorage.getItem('bruma-plan-start-date')) {
@@ -648,9 +675,31 @@ function App() {
         </label>
         <h1>{selectedDate === todayKey ? '¿Cuántos cigarrillos has fumado hoy?' : `¿Cuántos cigarrillos fumaste el ${formatLongDate(selectedDate)}?`}</h1>
         <Stepper value={todayCigs} min={0} max={80} onChange={setTodayCigs} suffix="cigarrillos" />
+
+        {profile.triggers.length > 0 && <div className="exposure-card">
+          <div className="exposure-heading">
+            <div>
+              <span>Situaciones difíciles</span>
+              <strong>¿Te has expuesto hoy a alguno de tus disparadores?</strong>
+            </div>
+            <small>+10% c/u · máx. +20%</small>
+          </div>
+          <div className="chips exposure-chips">
+            {profile.triggers.map(trigger => <button
+              type="button"
+              key={trigger}
+              className={todayExposures.includes(trigger) ? 'chip active' : 'chip'}
+              onClick={() => setTodayExposures(current => toggle(current, trigger))}
+            >{trigger}</button>)}
+          </div>
+          <p>El bonus solo se aplica si ese día has fumado menos que tu referencia.</p>
+        </div>}
+
         <div className={`daily-score ${todayCigs===0 ? 'celebrate' : ''}`}>
           <span>Puntuación {selectedDate === todayKey ? 'de hoy' : 'de ese día'}</span>
-          <strong>+{scoreDay(todayCigs, profile, selectedMonth, selectedSmokeFreeReference).toFixed(2)}</strong>
+          <strong>+{scoreDay(todayCigs, profile, selectedMonth, selectedSmokeFreeReference, todayExposures).toFixed(2)}</strong>
+          {todayExposures.length > 0 && todayCigs < scoringReference(profile, selectedMonth, selectedSmokeFreeReference) &&
+            <b className="exposure-bonus">+{Math.min(todayExposures.length, 2) * 10}% por exposición</b>}
           <small>{quantityGoal
             ? todayCigs <= selectedMonth.reference
               ? todayCigs === 0
