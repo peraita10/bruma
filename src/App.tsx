@@ -273,6 +273,9 @@ function App() {
     const firstEntry = [...parsedEntries].sort((a, b) => a.date.localeCompare(b.date))[0];
     return firstEntry?.date ?? localDateKey();
   });
+  const [dismissedMonthRecap, setDismissedMonthRecap] = useState(() =>
+    Number(localStorage.getItem('bruma-dismissed-month-recap') ?? '-1')
+  );
 
   const plan = useMemo(() => generatePlan(profile), [profile]);
   const todayKey = localDateKey();
@@ -314,6 +317,49 @@ function App() {
     ...currentMonthEntries.map(e => e.cigarettes),
     1
   );
+
+  const previousMonthIndex = currentMonthIndex - 1;
+  const previousMonth = previousMonthIndex >= 0 ? plan[previousMonthIndex] : null;
+  const previousMonthEntries = previousMonthIndex >= 0
+    ? entries.filter(e => getPlanPosition(e.date, planStartDate, plan.length).monthIndex === previousMonthIndex)
+    : [];
+  const previousSmokeFreeReference = previousMonthIndex >= 0
+    ? smokeFreeScoringReference(profile, plan, previousMonthIndex)
+    : profile.averageCigarettesPerDay;
+  const previousMonthPoints = previousMonth
+    ? previousMonthEntries.reduce(
+        (sum, e) => sum + scoreDay(e.cigarettes, profile, previousMonth, previousSmokeFreeReference, e.exposures ?? []),
+        0
+      )
+    : 0;
+  const previousMonthSmokeFreeDays = previousMonthEntries.filter(e => e.cigarettes === 0).length;
+  const previousMonthDaysMeetingTarget = previousMonth
+    ? previousMonthEntries.filter(e => e.cigarettes <= previousMonth.reference).length
+    : 0;
+  const previousMonthTotalCigs = previousMonthEntries.reduce((sum, e) => sum + e.cigarettes, 0);
+  const previousMonthAverage = previousMonthEntries.length
+    ? previousMonthTotalCigs / previousMonthEntries.length
+    : 0;
+  const previousMonthAvoided = Math.max(
+    0,
+    Math.round(previousMonthEntries.length * previousSmokeFreeReference - previousMonthTotalCigs)
+  );
+  const previousMonthSaved = (previousMonthAvoided / 20) * profile.packPrice;
+  const previousMonthGoalMet = previousMonth
+    ? quantityGoal
+      ? previousMonthPoints >= previousMonth.pointsTarget
+      : previousMonthPoints >= previousMonth.pointsTarget &&
+        previousMonthSmokeFreeDays >= previousMonth.smokeFreeDaysTarget
+    : false;
+  const showMonthRecap =
+    currentPosition.dayInMonth === 1 &&
+    currentMonthIndex > 0 &&
+    dismissedMonthRecap !== currentMonthIndex;
+
+  function dismissMonthRecap() {
+    localStorage.setItem('bruma-dismissed-month-recap', String(currentMonthIndex));
+    setDismissedMonthRecap(currentMonthIndex);
+  }
 
   const update = (patch: Partial<Profile>) => setProfile(p => ({ ...p, ...patch }));
 
@@ -361,6 +407,8 @@ function App() {
     localStorage.removeItem('bruma-profile');
     localStorage.removeItem('bruma-entries');
     localStorage.removeItem('bruma-plan-start-date');
+    localStorage.removeItem('bruma-dismissed-month-recap');
+    setDismissedMonthRecap(-1);
     setProfile(initialProfile);
     setPlanStartDate(localDateKey());
     setEntries([]);
@@ -524,6 +572,41 @@ function App() {
       <header className="app-header"><span className="brand">bruma</span><button className="avatar" onClick={reset}>↺</button></header>
 
       {tab === 'home' && <section className="dashboard">
+        {showMonthRecap && previousMonth && <div className={`month-recap ${previousMonthGoalMet ? 'success' : ''}`}>
+          <div className="month-recap-top">
+            <div>
+              <p className="eyebrow">MES {previousMonthIndex + 1} COMPLETADO</p>
+              <h2>{previousMonthGoalMet ? 'Lo has conseguido.' : 'Mes cerrado. Seguimos.'}</h2>
+            </div>
+            <button onClick={dismissMonthRecap} aria-label="Cerrar resumen">×</button>
+          </div>
+
+          <p className="month-recap-message">
+            {previousMonthGoalMet
+              ? 'Has cumplido el objetivo que te marcaste para este mes. No ha hecho falta hacerlo perfecto: has acumulado días y decisiones que te acercan a donde quieres estar.'
+              : 'No has llegado a todos los objetivos del mes, pero el progreso que has hecho cuenta. El siguiente mes parte de una referencia nueva y de todo lo que ya has aprendido.'}
+          </p>
+
+          <div className="month-recap-grid">
+            <div><span>Puntos</span><strong>{previousMonthPoints.toFixed(1)}</strong><small>de {previousMonth.pointsTarget}</small></div>
+            {quantityGoal
+              ? <div><span>Días cumpliendo</span><strong>{previousMonthDaysMeetingTarget}</strong><small>de {previousMonthEntries.length} registrados</small></div>
+              : <div><span>Días sin fumar</span><strong>{previousMonthSmokeFreeDays}</strong><small>objetivo {previousMonth.smokeFreeDaysTarget}</small></div>}
+            <div><span>Media</span><strong>{previousMonthAverage.toFixed(1)}</strong><small>cig/día registrado</small></div>
+            <div><span>Ahorro</span><strong>{previousMonthSaved.toFixed(2)} €</strong><small>{previousMonthAvoided} cig. evitados</small></div>
+          </div>
+
+          <div className="next-month-card">
+            <span>Ahora empieza el mes {currentMonthIndex + 1}</span>
+            <strong>{quantityGoal
+              ? `Tu nuevo objetivo es ≤ ${currentMonth.reference} cig/día.`
+              : `Tu nueva referencia es ${currentMonth.reference} cig/día y buscas ${currentMonth.smokeFreeDaysTarget} días sin fumar.`}</strong>
+            <small>La referencia para valorar tus reducciones parte del nivel del mes anterior. Un día cada vez.</small>
+          </div>
+
+          <button className="primary month-recap-cta" onClick={dismissMonthRecap}>Empezar el nuevo mes</button>
+        </div>}
+
         <p className="eyebrow">MES {currentMonthIndex + 1} · DÍA {currentPosition.dayInMonth}</p>
         <h1>Hoy cuenta.<br />No tiene que ser perfecto.</h1>
 
