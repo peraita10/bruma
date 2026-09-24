@@ -265,6 +265,7 @@ function App() {
   const [selectedDate, setSelectedDate] = useState(localDateKey());
   const [todayCigs, setTodayCigs] = useState(0);
   const [todayExposures, setTodayExposures] = useState<string[]>([]);
+  const [expandedPlanMonth, setExpandedPlanMonth] = useState<number | null>(null);
   const [planStartDate, setPlanStartDate] = useState(() => {
     const storedStartDate = localStorage.getItem('bruma-plan-start-date');
     if (storedStartDate) return storedStartDate;
@@ -801,7 +802,66 @@ function App() {
       {tab === 'plan' && <section className="plan-screen">
         <p className="eyebrow">TU CAMINO</p>
         <h1>{profile.durationMonths} meses.<br />Un objetivo claro.</h1>
-        <div className="timeline">{plan.map(m => <div className="month-row" key={m.month}><span>{String(m.month).padStart(2,'0')}</span><div><b>Mes {m.month}</b><small>{quantityGoal ? `Objetivo ≤ ${m.reference} cig/día` : `Referencia ${m.reference} cig/día`}</small></div><div className="month-goals"><b>{quantityGoal ? `≤${m.reference} 🚬` : `${m.smokeFreeDaysTarget} 🚭`}</b><small>{m.pointsTarget} pts</small></div></div>)}</div>
+        <div className="timeline">{plan.map((m, index) => {
+          const monthEntries = entries.filter(
+            e => getPlanPosition(e.date, planStartDate, plan.length).monthIndex === index
+          );
+          const monthReference = smokeFreeScoringReference(profile, plan, index);
+          const monthPoints = monthEntries.reduce(
+            (sum, e) => sum + scoreDay(e.cigarettes, profile, m, monthReference, e.exposures ?? []),
+            0
+          );
+          const monthSmokeFreeDays = monthEntries.filter(e => e.cigarettes === 0).length;
+          const monthDaysMeetingTarget = monthEntries.filter(e => e.cigarettes <= m.reference).length;
+          const monthTotalCigs = monthEntries.reduce((sum, e) => sum + e.cigarettes, 0);
+          const monthAverage = monthEntries.length ? monthTotalCigs / monthEntries.length : 0;
+          const monthAvoided = Math.max(0, Math.round(monthEntries.length * monthReference - monthTotalCigs));
+          const monthSaved = (monthAvoided / 20) * profile.packPrice;
+          const isPast = index < currentMonthIndex;
+          const isCurrent = index === currentMonthIndex;
+          const goalMet = isPast && (
+            quantityGoal
+              ? monthPoints >= m.pointsTarget
+              : monthPoints >= m.pointsTarget && monthSmokeFreeDays >= m.smokeFreeDaysTarget
+          );
+          const expanded = expandedPlanMonth === index;
+
+          return <div
+            className={`month-row-wrap ${isCurrent ? 'current ' : ''}${isPast ? (goalMet ? 'completed' : 'missed') : 'future'}`.trim()}
+            key={m.month}
+          >
+            <button
+              className="month-row"
+              onClick={() => isPast && setExpandedPlanMonth(expanded ? null : index)}
+              aria-expanded={isPast ? expanded : undefined}
+            >
+              <span>{String(m.month).padStart(2,'0')}</span>
+              <div className="month-copy">
+                <div className="month-title-line">
+                  <b>Mes {m.month}</b>
+                  {isCurrent && <em className="month-status current">ACTUAL</em>}
+                  {isPast && goalMet && <em className="month-status completed">✓ Conseguido</em>}
+                  {isPast && !goalMet && <em className="month-status missed">No conseguido</em>}
+                </div>
+                <small>{quantityGoal ? `Objetivo ≤ ${m.reference} cig/día` : `Referencia ${m.reference} cig/día`}</small>
+              </div>
+              <div className="month-goals">
+                <b>{quantityGoal ? `≤${m.reference} 🚬` : `${m.smokeFreeDaysTarget} 🚭`}</b>
+                <small>{m.pointsTarget} pts</small>
+                {isPast && <i>{expanded ? '⌃' : '⌄'}</i>}
+              </div>
+            </button>
+
+            {isPast && expanded && <div className="month-detail">
+              <div><span>Puntos</span><strong>{monthPoints.toFixed(1)}</strong><small>de {m.pointsTarget}</small></div>
+              {quantityGoal
+                ? <div><span>Días cumpliendo</span><strong>{monthDaysMeetingTarget}</strong><small>de {monthEntries.length}</small></div>
+                : <div><span>Días sin fumar</span><strong>{monthSmokeFreeDays}</strong><small>objetivo {m.smokeFreeDaysTarget}</small></div>}
+              <div><span>Media</span><strong>{monthAverage.toFixed(1)}</strong><small>cig/día</small></div>
+              <div><span>Ahorro</span><strong>{monthSaved.toFixed(2)} €</strong><small>{monthAvoided} cig. evitados</small></div>
+            </div>}
+          </div>;
+        })}</div>
       </section>}
 
       <nav className="bottom-nav">
