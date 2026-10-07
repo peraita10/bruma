@@ -107,6 +107,13 @@ function getPlanMonthDates(startDateKey: string, monthIndex: number) {
   return Array.from({ length: 30 }, (_, index) => addDays(startDateKey, firstDayOffset + index));
 }
 
+const weekDayLabels = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+
+function getMondayFirstWeekdayIndex(dateKey: string) {
+  const day = parseLocalDate(dateKey).getDay();
+  return (day + 6) % 7;
+}
+
 function getPlanPosition(dateKey: string, startDateKey: string, totalMonths: number) {
   const dayMs = 24 * 60 * 60 * 1000;
   const elapsedDays = Math.max(
@@ -712,23 +719,31 @@ function App() {
             <div><span>Todo el mes</span><small>Toca un día para verlo o editarlo.</small></div>
             <b>{smokeFreeDays} 🚭</b>
           </div>
-          <div className="month-calendar">
-            {currentMonthDates.map((dateKey, index) => {
-              const entry = entries.find(e => e.date === dateKey);
-              const date = parseLocalDate(dateKey);
-              const isFuture = dateKey > todayKey;
-              const className = `month-day ${entry?.cigarettes === 0 ? 'zero ' : ''}${!entry ? 'empty ' : ''}${dateKey === todayKey ? 'current ' : ''}${isFuture ? 'future' : ''}`.trim();
-              return <button
-                key={dateKey}
-                className={className}
-                disabled={isFuture}
-                onClick={() => openDay(dateKey)}
-              >
-                <small>D{index + 1}</small>
-                <strong>{entry ? (entry.cigarettes === 0 ? '✓' : entry.cigarettes) : '·'}</strong>
-                <span>{date.getDate()}/{date.getMonth() + 1}</span>
-              </button>;
-            })}
+          <div className="month-calendar-wrap">
+            <div className="month-weekdays">
+              {weekDayLabels.map(label => <span key={label}>{label}</span>)}
+            </div>
+            <div className="month-calendar">
+              {Array.from({ length: getMondayFirstWeekdayIndex(currentMonthDates[0]) }).map((_, index) =>
+                <div key={`spacer-${index}`} className="month-day-spacer" aria-hidden="true" />
+              )}
+              {currentMonthDates.map((dateKey, index) => {
+                const entry = entries.find(e => e.date === dateKey);
+                const date = parseLocalDate(dateKey);
+                const isFuture = dateKey > todayKey;
+                const className = `month-day ${entry?.cigarettes === 0 ? 'zero ' : ''}${!entry ? 'empty ' : ''}${dateKey === todayKey ? 'current ' : ''}${isFuture ? 'future' : ''}`.trim();
+                return <button
+                  key={dateKey}
+                  className={className}
+                  disabled={isFuture}
+                  onClick={() => openDay(dateKey)}
+                >
+                  <small>D{index + 1}</small>
+                  <strong>{entry ? (entry.cigarettes === 0 ? '✓' : entry.cigarettes) : '·'}</strong>
+                  <span>{date.getDate()}/{date.getMonth() + 1}</span>
+                </button>;
+              })}
+            </div>
           </div>
         </div>
 
