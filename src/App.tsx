@@ -348,6 +348,12 @@ function App() {
   const previousMonthAverage = previousMonthEntries.length
     ? previousMonthTotalCigs / previousMonthEntries.length
     : 0;
+  const trendReference = currentMonthIndex > 0 && previousMonthEntries.length > 0
+    ? previousMonthAverage
+    : profile.averageCigarettesPerDay;
+  const trendReferenceLabel = currentMonthIndex > 0 && previousMonthEntries.length > 0
+    ? 'Media real del mes anterior'
+    : 'Hábito inicial';
   const previousMonthAvoided = Math.max(
     0,
     Math.round(previousMonthEntries.length * previousSmokeFreeReference - previousMonthTotalCigs)
@@ -690,7 +696,7 @@ function App() {
 
         <div className="stats-card">
           <div className="stats-card-title">
-            <div><span>Consumo diario</span><small>Referencia anterior: {currentSmokeFreeReference} cig/día</small></div>
+            <div><span>Consumo diario</span><small>{trendReferenceLabel}: {trendReference.toFixed(1)} cig/día</small></div>
             <b>{currentMonthEntries.length}/30 días</b>
           </div>
           <div className="consumption-chart" aria-label="Gráfica de consumo diario">
@@ -751,11 +757,11 @@ function App() {
           <span>Tu tendencia</span>
           <strong>{currentMonthEntries.length === 0
             ? 'Registra algunos días para empezar a ver tu evolución.'
-            : currentMonthAverage < currentSmokeFreeReference
-              ? `Estás ${(currentSmokeFreeReference - currentMonthAverage).toFixed(1)} cig/día por debajo de tu referencia anterior.`
-              : currentMonthAverage === currentSmokeFreeReference
-                ? 'Tu media está justo en tu referencia anterior.'
-                : `Tu media está ${(currentMonthAverage - currentSmokeFreeReference).toFixed(1)} cig/día por encima de tu referencia anterior.`}</strong>
+            : currentMonthAverage < trendReference
+              ? `Tu media está ${(trendReference - currentMonthAverage).toFixed(1)} cig/día por debajo de ${currentMonthIndex > 0 ? 'la media real del mes anterior' : 'tu hábito inicial'}.`
+              : currentMonthAverage === trendReference
+                ? `Tu media está igual que ${currentMonthIndex > 0 ? 'la del mes anterior' : 'tu hábito inicial'}.`
+                : `Tu media está ${(currentMonthAverage - trendReference).toFixed(1)} cig/día por encima de ${currentMonthIndex > 0 ? 'la media real del mes anterior' : 'tu hábito inicial'}.`}</strong>
         </div>
 
         <button className="secondary stats-plan-button" onClick={() => setTab('plan')}>Ver mi plan completo</button>
